@@ -14,3 +14,7 @@ curl [OPTION] [URL]
 ✅ -H/ --header <header>    设置请求头
 
 🚧 -o/--output    把输出写到该文件中
+
+🚧 -F/--form    发送 HTTP multipart/form-data 请求的参数
+
+🚧 上传文件    
