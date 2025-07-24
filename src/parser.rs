@@ -6,7 +6,7 @@ use url::{Host, Url};
 
 
 
-pub fn resolve_domain(domain: &str) -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
+fn resolve_domain(domain: &str) -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
     // 使用系统默认配置创建解析器
     let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default())?;
     

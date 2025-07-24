@@ -47,8 +47,6 @@ fn main() {
 
     let url = Url::parse(&url_str).unwrap();
 
-    let addrs = parser::to_adders(&url).unwrap();
-
     let mut request = requester::request::new(&url);
 
     if let Some(header) = args.header {
@@ -64,21 +62,9 @@ fn main() {
     let scheme = url.scheme();
 
     if scheme == "https" {
-        if method == "GET" {
-            // 使用默认header进行get
-            request.https_get(&addrs).unwrap();
-        } else if method == "POST" {
-            // 使用默认header进行get
-            request.https_post(&addrs).unwrap();
-        }
+        request.https_do(method);
     } else if scheme == "http" {
-        if method == "GET" {
-            // 使用默认header进行get
-            request.get(&addrs).unwrap();
-        } else if method == "POST" {
-            // 使用默认header进行get
-            request.post(&addrs).unwrap();
-        }
+        request.http_do(method);
     } else {
         println!("unsupported scheme: {}", scheme);
     }

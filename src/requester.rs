@@ -1,3 +1,4 @@
+use crate::parser;
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use std::io::Read;
 use std::io::Write;
@@ -79,6 +80,14 @@ impl request {
         }
     }
 
+    fn match_method(method_str: String) -> Result<Method, Box<dyn std::error::Error>> {
+        match method_str.as_str() {
+            "GET" => Ok(Method::GET),
+            "POST" => Ok(Method::POST),
+            _ => Err("unsupported method".into()),
+        }
+    }
+
     pub fn set_header(&mut self, _h: &String) -> &mut Self {
         self.header = Some(_h.clone());
         self
@@ -86,6 +95,16 @@ impl request {
     pub fn set_data(&mut self, _d: &String) -> &mut Self {
         self.data = Some(_d.clone());
         self
+    }
+
+    // http get/post
+    pub fn http_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
+        let addrs = parser::to_adders(&self.url)?;
+        let method = Self::match_method(method_str)?;
+        match method {
+            Method::GET => self.get(&addrs),
+            Method::POST => self.post(&addrs),
+        }
     }
 
     pub fn get(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
@@ -169,16 +188,19 @@ impl request {
         Ok(())
     }
 
-
-
-    pub fn https_get(&mut self, addrs: &[SocketAddr]) -> Result<(), Box<dyn std::error::Error>> {
+    // https get/post
+    pub fn https_do(
+        &mut self,
+        method_str: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut last_error = None;
-
+        let method = Self::match_method(method_str)?;
+        let addrs = parser::to_adders(&self.url)?;
         for addr in addrs {
             let ip = addr.ip().to_string();
             let port = addr.port();
 
-            match self.try_https(ip, port, Method::GET) {
+            match self.try_https(ip, port, method) {
                 Ok(()) => return Ok(()),        // 成功则立即返回
                 Err(e) => last_error = Some(e), // 失败则记录错误
             }
@@ -191,27 +213,12 @@ impl request {
         )
     }
 
-    pub fn https_post(&mut self, addrs: &[SocketAddr]) -> Result<(), Box<dyn std::error::Error>> {
-        let mut last_error = None;
-
-        for addr in addrs {
-            let ip = addr.ip().to_string();
-            let port = addr.port();
-
-            match self.try_https(ip, port, Method::POST) {
-                Ok(()) => return Ok(()),        // 成功则立即返回
-                Err(e) => last_error = Some(e), // 失败则记录错误
-            }
-        }
-
-        // 所有地址都失败，返回最后一个错误
-        last_error.map_or_else(
-            || Ok(()),  // 如果 last_error 为空，返回 Ok(())
-            |e| Err(e), // 否则返回最后一个错误
-        )
-    }
-
-    fn try_https(&mut self, HOST: String, PORT: u16, method: Method) -> Result<(), Box<dyn std::error::Error>> {
+    fn try_https(
+        &mut self,
+        HOST: String,
+        PORT: u16,
+        method: Method,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 构造完整的请求头
         self.construct_header(method.clone());
 
@@ -253,10 +260,12 @@ impl request {
         let request;
         match method {
             Method::GET => request = self.header.clone().unwrap_or_default(),
-            Method::POST => request =
-            self.header.clone().unwrap_or_default() + &self.data.clone().unwrap_or_default(),
+            Method::POST => {
+                request =
+                    self.header.clone().unwrap_or_default() + &self.data.clone().unwrap_or_default()
+            }
         }
-        
+
         tls_stream.write_all(request.as_bytes())?;
         tls_stream.flush()?;
 
@@ -283,11 +292,10 @@ impl request {
 
         Ok(())
     }
-
 }
 
 // 定义一个自定义的证书验证器
-// 这个结构体将实现 `ServerCertVerifier` trait，不执行任何验证。
+// 实现 `ServerCertVerifier` trait，不执行任何验证。
 #[derive(Debug)]
 struct NoVerification;
 
