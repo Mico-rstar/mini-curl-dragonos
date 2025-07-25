@@ -1,5 +1,5 @@
-use clap::Parser;
-use url::{Host, Url};
+use clap::{Parser};
+use url::{Url};
 
 mod parser;
 mod requester;
@@ -39,30 +39,28 @@ struct Cli {
     url: String,
 }
 
-fn main() {
+fn main(){
     // 定义命令行界面
     let args = Cli::parse();
-
     let url_str = args.url;
-
     let url = Url::parse(&url_str).unwrap();
-
-    let mut request = requester::request::new(&url);
+    let mut request = requester::Request::new(&url);
 
     if let Some(header) = args.header {
         request.set_header(&header);
     }
-
     if let Some(data) = args.data {
         request.set_data(&data);
     }
-
     // 默认为GET
     let method = args.method;
     let scheme = url.scheme();
 
     if scheme == "https" {
-        request.https_do(method);
+        if let Err(e) = request.https_do(method) {
+            eprintln!("Error during HTTP request: {}", e);
+            return; // Exit if there's an error
+        } 
     } else if scheme == "http" {
         if let Err(e) = request.http_do(method) {
             eprintln!("Error during HTTP request: {}", e);

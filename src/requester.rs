@@ -18,15 +18,15 @@ enum Method {
     POST,
 }
 
-pub struct request {
+pub struct Request {
     data: Option<String>,
     header: Option<String>,
     url: url::Url,
 }
 
-impl request {
+impl Request {
     pub fn new(_url: &url::Url) -> Self {
-        request {
+        Request {
             data: None,
             header: None,
             url: _url.clone(),
@@ -153,7 +153,7 @@ impl request {
         // // Ok(buffer)
         // println!("buffer: {}", buffer);
 
-        let mut response = Self::read_response(&mut stream);
+        let mut _response = Self::read_response(&mut stream);
         Ok(())
     }
 
@@ -222,8 +222,8 @@ impl request {
 
     fn try_https(
         &mut self,
-        HOST: String,
-        PORT: u16,
+        host: String,
+        port: u16,
         method: Method,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // 构造完整的请求头
@@ -231,7 +231,7 @@ impl request {
 
         // 配置 `rustls` 客户端以跳过验证
         // 创建一个危险的客户端配置构建器，允许不安全的证书验证
-        let mut config = rustls::ClientConfig::builder()
+        let config = rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(NoVerification)) // 使用自定义的空验证器
             .with_no_client_auth();
@@ -248,18 +248,11 @@ impl request {
         //     .with_root_certificates(root_cert_store) // 设置信任的根证书
         //     .with_no_client_auth(); // 指定客户端不需要提供证书进行验证
 
-        let host = self
-            .url
-            .host_str()
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "URL must have a host",
-            ))
-            .unwrap();
+        
         let server_name: ServerName = host.to_string().try_into().map_err(|_| "无效的DNS名称")?;
         let mut client_conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
 
-        let mut tcp_stream = TcpStream::connect((HOST, PORT))?;
+        let mut tcp_stream = TcpStream::connect((host, port))?;
         // tcp_stream.set_read_timeout(Some(Duration::new(3, 0)));
 
         let mut tls_stream = rustls::Stream::new(&mut client_conn, &mut tcp_stream);
