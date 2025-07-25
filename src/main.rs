@@ -3,6 +3,7 @@ use url::{Url};
 
 mod parser;
 mod requester;
+mod response;
 
 #[derive(Parser)]
 #[command(name = "mini-curl", version = "1.0", about = "A curl-like tool")]

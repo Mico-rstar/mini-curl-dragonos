@@ -5,6 +5,7 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::u8;
+use crate::response::Response;
 
 /*
 TO_DO
@@ -153,7 +154,12 @@ impl Request {
         // // Ok(buffer)
         // println!("buffer: {}", buffer);
 
-        let mut _response = Self::read_response(&mut stream);
+        let raw = Response::read(&mut stream)?;
+        let response =  Response::parse(raw);
+        println!("header: {:?}", response.headers);
+        println!("body: {}", response.body);
+
+
         Ok(())
     }
 
