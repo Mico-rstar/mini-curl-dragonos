@@ -1,10 +1,16 @@
 use crate::parser;
-use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls_pki_types::ServerName;
 use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
-use std::time::Duration;
+use std::u8;
+
+/*
+TO_DO
+    - 流式输出到控制台
+    - 判断结束条件: 将请求头改为connection: close后解决
+*/
 
 #[derive(Copy, Clone)]
 enum Method {
@@ -61,7 +67,7 @@ impl request {
                     Host: {}\r\n\
                     Content-Type: application/x-www-form-urlencoded\r\n\
                     Content-Length: {}\r\n\
-                    Connection: keep-alive\r\n\r\n\
+                    Connection: close\r\n\r\n\
                     ",
                     path, query, host, dl
                 ));
@@ -72,7 +78,7 @@ impl request {
                 Host: {}\r\n\
                 Content-Type: application/x-www-form-urlencoded\r\n\
                 Content-Length: {}\r\n\
-                Connection: keep-alive\r\n\r\n\
+                Connection: close\r\n\r\n\
                 ",
                     path, host, dl
                 ));
@@ -107,6 +113,28 @@ impl request {
         }
     }
 
+    fn read_response(stream: &mut TcpStream) -> String {
+        let mut buffer = [0; 1024];
+        let mut result = String::new();
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
+                    let tmp_str = String::from_utf8_lossy(&buffer[..n]);
+                    print!("{}", tmp_str);
+                    result += &tmp_str;
+                }
+                Err(e) => {
+                    println!("与linux不一致: {:?}", e);
+                    break;
+                }
+            }
+        }
+        result
+    }
+
     pub fn get(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = TcpStream::connect(&addrs[..])?;
 
@@ -117,33 +145,15 @@ impl request {
         // 发送请求
         stream.write_all(request.as_bytes())?;
 
-        // 创建一个缓冲区来接收数据
+        // // 创建一个缓冲区来接收数据
         // let mut buffer = String::new();
 
-        // 读取服务器返回的数据
+        // // 读取服务器返回的数据
         // stream.read_to_string(&mut buffer)?;
-        // Ok(buffer)
-        //println!("buffer: {}", buffer);
+        // // Ok(buffer)
+        // println!("buffer: {}", buffer);
 
-        let mut buffer = [0; 1024];
-
-        // 读取服务器返回的数据
-        loop {
-            match stream.read(&mut buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        break;
-                    };
-                    println!("{}", String::from_utf8_lossy(&buffer[..n]));
-                }
-                Err(e) => {
-                    // 与linux不一致
-                    println!("与linux不一致: {:?}", e);
-                    break;
-                }
-            }
-        }
-
+        let mut response = Self::read_response(&mut stream);
         Ok(())
     }
 
@@ -189,10 +199,7 @@ impl request {
     }
 
     // https get/post
-    pub fn https_do(
-        &mut self,
-        method_str: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn https_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
         let mut last_error = None;
         let method = Self::match_method(method_str)?;
         let addrs = parser::to_adders(&self.url)?;
@@ -293,7 +300,6 @@ impl request {
         Ok(())
     }
 }
-
 // 定义一个自定义的证书验证器
 // 实现 `ServerCertVerifier` trait，不执行任何验证。
 #[derive(Debug)]

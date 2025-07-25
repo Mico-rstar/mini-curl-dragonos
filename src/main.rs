@@ -64,7 +64,10 @@ fn main() {
     if scheme == "https" {
         request.https_do(method);
     } else if scheme == "http" {
-        request.http_do(method);
+        if let Err(e) = request.http_do(method) {
+            eprintln!("Error during HTTP request: {}", e);
+            return; // Exit if there's an error
+        } 
     } else {
         println!("unsupported scheme: {}", scheme);
     }
