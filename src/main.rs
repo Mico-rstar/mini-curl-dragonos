@@ -1,10 +1,10 @@
-use clap::{Parser};
-use url::{Url};
+use clap::Parser;
+use url::Url;
 
+mod file_io;
 mod parser;
 mod requester;
 mod response;
-mod file_io;
 
 #[derive(Parser)]
 #[command(name = "mini-curl", version = "1.0", about = "A curl-like tool")]
@@ -46,23 +46,43 @@ struct Cli {
     )]
     output: Option<String>,
 
+    #[arg(
+        short = 'F',
+        long = "formdata",
+        value_name = "STRING",
+        num_args = 1..,
+        help = "Set form data for multipart/form-data, e.g. -F key=value"
+    )]
+    formdata: Vec<String>,
+
     #[arg(required = true)]
     url: String,
 }
 
-fn main(){
+fn main() {
     // 定义命令行界面
     let args = Cli::parse();
     let url_str = args.url;
     let url = Url::parse(&url_str).unwrap();
     let mut request = requester::Request::new(&url);
 
-    if let Some(header) = args.header {
-        request.set_header(&header);
-    }
+    
     if let Some(data) = args.data {
         request.set_data(&data);
     }
+    if !args.formdata.is_empty() {
+        let (content_type, body) = requester::build_formdata(&args.formdata).unwrap();
+        request.set_header(&format!(
+            "POST /path HTTP/1.1\r\nHost: ...\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+            content_type,
+            body.len()
+        ));
+        request.set_formdata(&body);
+    }
+    if let Some(header) = args.header {
+        request.set_header(&header);
+    }
+    
     // 默认为GET
     let method = args.method;
     let scheme = url.scheme();
@@ -71,12 +91,12 @@ fn main(){
         if let Err(e) = request.https_do(method) {
             eprintln!("Error during HTTP request: {}", e);
             return; // Exit if there's an error
-        } 
+        }
     } else if scheme == "http" {
         if let Err(e) = request.http_do(method) {
             eprintln!("Error during HTTP request: {}", e);
             return; // Exit if there's an error
-        } 
+        }
     } else {
         println!("unsupported scheme: {}", scheme);
     }
