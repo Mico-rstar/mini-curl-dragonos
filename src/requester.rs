@@ -133,20 +133,7 @@ impl Request {
         // // Ok(buffer)
         // println!("buffer: {}", buffer);
 
-        let raw = Response::read(&mut stream)?;
-        self.response = Some(Response::parse(raw));
-        if let Some(resq) = &self.response {
-            match &resq.body {
-                response::ResponseBody::Text(text) => {
-                    println!("{}", text);
-                }
-                response::ResponseBody::Binary(data) => {
-                    println!("Warning: Binary output can mess up your terminal.");
-                    println!("Warning: or consider '--output <FILE>' to save to a file.");
-                }
-            }
-        }
-        
+        self.fetch_response(&mut stream)?;
 
         Ok(())
     }
@@ -170,8 +157,7 @@ impl Request {
         // stream.read_to_string(&mut buffer)?;
         // Ok(buffer)
 
-        let raw = Response::read(&mut stream)?;
-        self.response = Some(Response::parse(raw));
+        self.fetch_response(&mut stream)?;
 
         Ok(())
     }
@@ -246,9 +232,26 @@ impl Request {
         tls_stream.write_all(request.as_bytes())?;
         tls_stream.flush()?;
 
-        let raw = Response::read(&mut tls_stream)?;
-        self.response = Some(Response::parse(raw));
+        
+        self.fetch_response(&mut tls_stream)?;
 
+        Ok(())
+    }
+    
+    fn fetch_response<R: std::io::Read>(&mut self, stream: &mut R) -> Result<(), Box<dyn std::error::Error>>{
+        let raw = Response::read(stream)?;
+        self.response = Some(Response::parse(raw));
+        if let Some(resq) = &self.response {
+            match &resq.body {
+                response::ResponseBody::Text(text) => {
+                    println!("{}", text);
+                }
+                response::ResponseBody::Binary(_) => {
+                    println!("Warning: Binary output can mess up your terminal.");
+                    println!("Warning: or consider '--output <FILE>' to save to a file.");
+                }
+            }
+        }
         Ok(())
     }
 
