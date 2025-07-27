@@ -23,6 +23,7 @@ pub struct Request {
     header: Option<String>,
     url: url::Url,
     response: Option<Response>,
+    formdata: Option<Vec<u8>>,
 }
 
 impl Request {
@@ -32,6 +33,7 @@ impl Request {
             header: None,
             url: _url.clone(),
             response: None,
+            formdata: None,
         }
     }
 
@@ -105,6 +107,11 @@ impl Request {
         self
     }
 
+    pub fn set_formdata(&mut self, d: &[u8]) -> &mut Self {
+        self.formdata = Some(d.to_vec());
+        self
+    }
+
     // http get/post
     pub fn http_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
         let addrs = parser::to_adders(&self.url)?;
@@ -124,14 +131,9 @@ impl Request {
 
         // 发送请求
         stream.write_all(request.as_bytes())?;
-
-        // // 创建一个缓冲区来接收数据
-        // let mut buffer = String::new();
-
-        // // 读取服务器返回的数据
-        // stream.read_to_string(&mut buffer)?;
-        // // Ok(buffer)
-        // println!("buffer: {}", buffer);
+        if let Some(ref formdata) = self.formdata {
+            stream.write_all(formdata)?;
+        }
 
         self.fetch_response(&mut stream)?;
 
@@ -150,12 +152,9 @@ impl Request {
         // 发送请求
         stream.write_all(request.as_bytes())?;
 
-        // // 创建一个缓冲区来接收数据
-        // let mut buffer = String::new();
-
-        // // 读取服务器返回的数据
-        // stream.read_to_string(&mut buffer)?;
-        // Ok(buffer)
+        if let Some(ref formdata) = self.formdata {
+            stream.write_all(formdata)?;
+        }
 
         self.fetch_response(&mut stream)?;
 
@@ -232,13 +231,17 @@ impl Request {
         tls_stream.write_all(request.as_bytes())?;
         tls_stream.flush()?;
 
-        
         self.fetch_response(&mut tls_stream)?;
 
         Ok(())
     }
+
     
-    fn fetch_response<R: std::io::Read>(&mut self, stream: &mut R) -> Result<(), Box<dyn std::error::Error>>{
+
+    fn fetch_response<R: std::io::Read>(
+        &mut self,
+        stream: &mut R,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let raw = Response::read(stream)?;
         self.response = Some(Response::parse(raw));
         if let Some(resq) = &self.response {
@@ -316,3 +319,41 @@ impl rustls::client::danger::ServerCertVerifier for NoVerification {
 }
 
 
+pub fn build_formdata(
+        formdata: &[String],
+    ) -> Result<(String, Vec<u8>), Box<dyn std::error::Error>> {
+        let boundary = format!("----mini-curl-{}", rand::random::<u64>());
+        let mut body = Vec::new();
+
+        for item in formdata {
+            if let Some((key, value)) = item.split_once('=') {
+                if value.starts_with('@') {
+                    // 文件上传
+                    let filepath = &value[1..];
+                    let filename = std::path::Path::new(filepath)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file");
+                    let file_content = file_io::read_file_to_bytes(filepath)?;
+                    body.extend_from_slice(format!(
+                    "--{}\r\nContent-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\nContent-Type: application/octet-stream\r\n\r\n",
+                    boundary, key, filename
+                ).as_bytes());
+                    body.extend_from_slice(&file_content);
+                    body.extend_from_slice(b"\r\n");
+                } else {
+                    // 普通文本字段
+                    body.extend_from_slice(
+                        format!(
+                            "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n",
+                            boundary, key, value
+                        )
+                        .as_bytes(),
+                    );
+                }
+            }
+        }
+        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+        Ok((content_type, body))
+    }
