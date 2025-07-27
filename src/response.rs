@@ -1,4 +1,5 @@
 /// HTTP响应结构体，包含原始内容、头部、体
+#[derive(Clone)]
 pub struct Response {
     pub raw: String,
     pub headers: Vec<String>,
@@ -36,7 +37,7 @@ impl Response {
                 Ok(n) => {
                     let raw = String::from_utf8_lossy(&buffer[..n]);
                     result += &raw;
-                    print!("{raw}");
+                    // print!("{raw}");
                 },
                 Err(e) => {
                     println!("与linux不一致: {:?}", e);

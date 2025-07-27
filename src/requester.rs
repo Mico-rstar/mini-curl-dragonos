@@ -1,11 +1,10 @@
-use crate::parser;
+use crate::response::Response;
+use crate::{file_io, parser};
 use rustls_pki_types::ServerName;
-use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::u8;
-use crate::response::Response;
 
 /*
 TO_DO
@@ -23,6 +22,7 @@ pub struct Request {
     data: Option<String>,
     header: Option<String>,
     url: url::Url,
+    response: Option<Response>,
 }
 
 impl Request {
@@ -31,6 +31,7 @@ impl Request {
             data: None,
             header: None,
             url: _url.clone(),
+            response: None,
         }
     }
 
@@ -114,7 +115,6 @@ impl Request {
         }
     }
 
-
     pub fn get(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = TcpStream::connect(&addrs[..])?;
 
@@ -134,8 +134,9 @@ impl Request {
         // println!("buffer: {}", buffer);
 
         let raw = Response::read(&mut stream)?;
-        let response =  Response::parse(raw);
+        self.response = Some(Response::parse(raw));
 
+        println!("{:?}", self.response.clone().unwrap().headers);
 
         Ok(())
     }
@@ -160,7 +161,7 @@ impl Request {
         // Ok(buffer)
 
         let raw = Response::read(&mut stream)?;
-        let response =  Response::parse(raw);
+        self.response = Some(Response::parse(raw));
 
         Ok(())
     }
@@ -215,7 +216,6 @@ impl Request {
         //     .with_root_certificates(root_cert_store) // 设置信任的根证书
         //     .with_no_client_auth(); // 指定客户端不需要提供证书进行验证
 
-        
         let server_name: ServerName = host.to_string().try_into().map_err(|_| "无效的DNS名称")?;
         let mut client_conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
 
@@ -223,7 +223,6 @@ impl Request {
         // tcp_stream.set_read_timeout(Some(Duration::new(3, 0)));
 
         let mut tls_stream = rustls::Stream::new(&mut client_conn, &mut tcp_stream);
-
 
         let request;
         match method {
@@ -234,15 +233,22 @@ impl Request {
             }
         }
 
-
         tls_stream.write_all(request.as_bytes())?;
         tls_stream.flush()?;
 
-
         let raw = Response::read(&mut tls_stream)?;
-        let response =  Response::parse(raw);
+        self.response = Some(Response::parse(raw));
 
         Ok(())
+    }
+
+    pub fn response_output(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(resp) = &self.response {
+            file_io::write_string_to_file(path, &resp.body)?;
+            Ok(())
+        } else {
+            Err("found none response".into())
+        }
     }
 }
 // 定义一个自定义的证书验证器
@@ -286,5 +292,41 @@ impl rustls::client::danger::ServerCertVerifier for NoVerification {
             .signature_verification_algorithms
             .supported_schemes()
             .to_vec()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_response_output_success() {
+        // 构造一个带有响应体的 Request
+        let mut req = Request::new(&url::Url::parse("http://www.baidu.com").unwrap());
+        req.response = Some(Response {
+            raw: "HTTP/1.1 200 OK\r\n\r\nhello world".to_string(),
+            headers: vec!["HTTP/1.1 200 OK".to_string()],
+            body: "hello world".to_string(),
+        });
+
+        let test_path = "test_output.txt";
+        // 调用 response_output
+        req.response_output(test_path).unwrap();
+
+        // 检查文件内容
+        let content = fs::read_to_string(test_path).unwrap();
+        assert_eq!(content, "hello world");
+
+        // 清理
+        let _ = fs::remove_file(test_path);
+    }
+
+    #[test]
+    fn test_response_output_none() {
+        let req = Request::new(&url::Url::parse("http://www.baidu.com").unwrap());
+        let result = req.response_output("should_not_create.txt");
+        assert!(result.is_err());
     }
 }

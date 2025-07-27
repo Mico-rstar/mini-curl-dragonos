@@ -4,6 +4,7 @@ use url::{Url};
 mod parser;
 mod requester;
 mod response;
+mod file_io;
 
 #[derive(Parser)]
 #[command(name = "mini-curl", version = "1.0", about = "A curl-like tool")]
@@ -35,6 +36,15 @@ struct Cli {
         help = "Set data for request"
     )]
     data: Option<String>,
+
+    #[arg(
+        short = 'o',
+        long = "output",
+        value_name("STRING"),
+        num_args = 1,
+        help = "Set output file for response"
+    )]
+    output: Option<String>,
 
     #[arg(required = true)]
     url: String,
@@ -69,5 +79,12 @@ fn main(){
         } 
     } else {
         println!("unsupported scheme: {}", scheme);
+    }
+
+    if let Some(output) = args.output {
+        if let Err(e) = request.response_output(&output) {
+            eprintln!("Error during write response to output: {}", e);
+            return;
+        }
     }
 }
