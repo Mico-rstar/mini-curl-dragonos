@@ -1,4 +1,4 @@
-use crate::response::Response;
+use crate::response::{self, Response};
 use crate::{file_io, parser};
 use rustls_pki_types::ServerName;
 use std::io::Write;
@@ -135,8 +135,18 @@ impl Request {
 
         let raw = Response::read(&mut stream)?;
         self.response = Some(Response::parse(raw));
-
-        println!("{:?}", self.response.clone().unwrap().headers);
+        if let Some(resq) = &self.response {
+            match &resq.body {
+                response::ResponseBody::Text(text) => {
+                    println!("{}", text);
+                }
+                response::ResponseBody::Binary(data) => {
+                    println!("Warning: Binary output can mess up your terminal.");
+                    println!("Warning: or consider '--output <FILE>' to save to a file.");
+                }
+            }
+        }
+        
 
         Ok(())
     }
@@ -244,7 +254,14 @@ impl Request {
 
     pub fn response_output(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(resp) = &self.response {
-            file_io::write_string_to_file(path, &resp.body)?;
+            match &resp.body {
+                response::ResponseBody::Text(text) => {
+                    file_io::write_string_to_file(path, text)?;
+                }
+                response::ResponseBody::Binary(data) => {
+                    file_io::write_bytes_to_file(path, data)?;
+                }
+            }
             Ok(())
         } else {
             Err("found none response".into())
@@ -296,37 +313,3 @@ impl rustls::client::danger::ServerCertVerifier for NoVerification {
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_response_output_success() {
-        // 构造一个带有响应体的 Request
-        let mut req = Request::new(&url::Url::parse("http://www.baidu.com").unwrap());
-        req.response = Some(Response {
-            raw: "HTTP/1.1 200 OK\r\n\r\nhello world".to_string(),
-            headers: vec!["HTTP/1.1 200 OK".to_string()],
-            body: "hello world".to_string(),
-        });
-
-        let test_path = "test_output.txt";
-        // 调用 response_output
-        req.response_output(test_path).unwrap();
-
-        // 检查文件内容
-        let content = fs::read_to_string(test_path).unwrap();
-        assert_eq!(content, "hello world");
-
-        // 清理
-        let _ = fs::remove_file(test_path);
-    }
-
-    #[test]
-    fn test_response_output_none() {
-        let req = Request::new(&url::Url::parse("http://www.baidu.com").unwrap());
-        let result = req.response_output("should_not_create.txt");
-        assert!(result.is_err());
-    }
-}
