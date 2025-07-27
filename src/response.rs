@@ -73,6 +73,12 @@ impl Response {
         }
     }
 
+    /*
+    以下函数在dragonos中不可用
+    read_to_end
+    read_to_string
+    read_to_vec
+     */
     /// 读取流中所有内容，返回 Vec<u8>
     pub fn read<R: std::io::Read>(stream: &mut R) -> std::io::Result<Vec<u8>> {
         let mut buffer = [0u8; 1024];
@@ -91,6 +97,7 @@ impl Response {
         }
         Ok(result)
     }
+
 
     
 }
