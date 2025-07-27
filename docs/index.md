@@ -5,7 +5,7 @@
 curl [OPTION] [URL] 
 ✅ 已完成 🚧 进行中 
 
-✅ http get请求
+✅ http get/post请求
 
 ✅ https支持
 
@@ -13,8 +13,8 @@ curl [OPTION] [URL]
 
 ✅ -H/ --header <header>    设置请求头
 
-✅ -o/--output    把输出写到该文件中
+✅ -o/--output <filename>    把输出写到该文件中
 
-🚧 -F/--form    发送 HTTP multipart/form-data 请求的参数
+✅ -F/--form <key=value>    发送 HTTP multipart/form-data 请求的参数
 
-🚧 上传文件    
+✅ 上传文件    
