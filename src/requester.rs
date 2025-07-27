@@ -114,27 +114,6 @@ impl Request {
         }
     }
 
-    fn read_response(stream: &mut TcpStream) -> String {
-        let mut buffer = [0; 1024];
-        let mut result = String::new();
-        loop {
-            match stream.read(&mut buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        break;
-                    }
-                    let tmp_str = String::from_utf8_lossy(&buffer[..n]);
-                    print!("{}", tmp_str);
-                    result += &tmp_str;
-                }
-                Err(e) => {
-                    println!("与linux不一致: {:?}", e);
-                    break;
-                }
-            }
-        }
-        result
-    }
 
     pub fn get(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = TcpStream::connect(&addrs[..])?;
@@ -156,8 +135,6 @@ impl Request {
 
         let raw = Response::read(&mut stream)?;
         let response =  Response::parse(raw);
-        println!("header: {:?}", response.headers);
-        println!("body: {}", response.body);
 
 
         Ok(())
@@ -182,24 +159,8 @@ impl Request {
         // stream.read_to_string(&mut buffer)?;
         // Ok(buffer)
 
-        let mut buffer = [0; 1024];
-
-        // 读取服务器返回的数据
-        loop {
-            match stream.read(&mut buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        break;
-                    };
-                    println!("{}", String::from_utf8_lossy(&buffer[..n]));
-                }
-                Err(e) => {
-                    // 与linux不一致
-                    println!("与linux不一致: {:?}", e);
-                    break;
-                }
-            }
-        }
+        let raw = Response::read(&mut stream)?;
+        let response =  Response::parse(raw);
 
         Ok(())
     }
@@ -263,6 +224,7 @@ impl Request {
 
         let mut tls_stream = rustls::Stream::new(&mut client_conn, &mut tcp_stream);
 
+
         let request;
         match method {
             Method::GET => request = self.header.clone().unwrap_or_default(),
@@ -272,29 +234,13 @@ impl Request {
             }
         }
 
+
         tls_stream.write_all(request.as_bytes())?;
         tls_stream.flush()?;
 
-        // 7. 读取 HTTP 响应
-        let mut buffer = [0; 8192];
 
-        // 读取服务器返回的数据
-        loop {
-            match tls_stream.read(&mut buffer) {
-                Ok(n) => {
-                    // println!("n={}", n);
-                    if n == 0 {
-                        break;
-                    };
-                    println!("{}", String::from_utf8_lossy(&buffer[..n]));
-                }
-                Err(e) => {
-                    // 与linux不一致
-                    println!("与linux不一致: {:?}", e);
-                    break;
-                }
-            }
-        }
+        let raw = Response::read(&mut tls_stream)?;
+        let response =  Response::parse(raw);
 
         Ok(())
     }

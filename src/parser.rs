@@ -25,11 +25,9 @@ pub fn to_adders(url: &Url) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error
 
     match url.host() {
         Some(Host::Domain(domain)) => {
-            println!("domain: {}", domain);
             // dns 解析
             match resolve_domain(domain) {
                 Ok(ips) => {
-                    println!("Resolved IP addresses for {}: {:?}", domain, ips);
                     assert!(!ips.is_empty(), "Should resolve to at least one IP");
 
                     let port;

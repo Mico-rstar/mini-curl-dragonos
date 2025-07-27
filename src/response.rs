@@ -36,7 +36,7 @@ impl Response {
                 Ok(n) => {
                     let raw = String::from_utf8_lossy(&buffer[..n]);
                     result += &raw;
-                    // print!("{raw}");
+                    print!("{raw}");
                 },
                 Err(e) => {
                     println!("与linux不一致: {:?}", e);
