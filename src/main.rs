@@ -5,6 +5,7 @@ mod file_io;
 mod parser;
 mod requester;
 mod response;
+mod structs;
 
 #[derive(Parser)]
 #[command(name = "mini-curl", version = "1.0", about = "A curl-like tool")]

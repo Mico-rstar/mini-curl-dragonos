@@ -1,10 +1,12 @@
 use crate::response::{self, Response};
 use crate::{file_io, parser};
+use rustls::quic::HeaderProtectionKey;
 use rustls_pki_types::ServerName;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::u8;
+use crate::structs::{Method, Header, Contype};
 
 /*
 TO_DO
@@ -12,32 +14,28 @@ TO_DO
     - 判断结束条件: 将请求头改为connection: close后解决
 */
 
-#[derive(Copy, Clone)]
-enum Method {
-    GET,
-    POST,
-}
-
 pub struct Request {
     data: Option<String>,
-    header: Option<String>,
+    header: Header,
     url: url::Url,
     response: Option<Response>,
     formdata: Option<Vec<u8>>,
+    ctype: Contype,
 }
 
 impl Request {
     pub fn new(_url: &url::Url) -> Self {
         Request {
             data: None,
-            header: None,
+            header: Header::new(),
             url: _url.clone(),
             response: None,
             formdata: None,
+            ctype: Contype::FORM,
         }
     }
 
-    fn construct_header(&mut self, method: Method) {
+    fn construct_header(&mut self, method: Method) -> &mut Header{
         // 构造请求路径 (如果路径为空则使用 "/")
         let path = if self.url.path().is_empty() {
             "/"
@@ -64,30 +62,12 @@ impl Request {
         // data length
         let dl = self.data.clone().unwrap_or_default().len();
 
-        match method {
-            Method::GET => {
-                self.header = Some(format!(
-                    "GET {}{} HTTP/1.1\r\n\
-                    Host: {}\r\n\
-                    Content-Type: application/x-www-form-urlencoded\r\n\
-                    Content-Length: {}\r\n\
-                    Connection: close\r\n\r\n\
-                    ",
-                    path, query, host, dl
-                ));
-            }
-            Method::POST => {
-                self.header = Some(format!(
-                    "POST {} HTTP/1.1\r\n\
-                Host: {}\r\n\
-                Content-Type: application/x-www-form-urlencoded\r\n\
-                Content-Length: {}\r\n\
-                Connection: close\r\n\r\n\
-                ",
-                    path, host, dl
-                ));
-            }
-        }
+        
+        self.header
+        .with_request_line(method, path, "HTTP/1.1")
+        .set("Host", host)
+        .set("Content-Length", &dl.to_string())
+        .set("Content-Type", &self.ctype.to_string())
     }
 
     fn match_method(method_str: String) -> Result<Method, Box<dyn std::error::Error>> {
@@ -99,7 +79,7 @@ impl Request {
     }
 
     pub fn set_header(&mut self, _h: &String) -> &mut Self {
-        self.header = Some(_h.clone());
+        self.header = Header::from(_h);
         self
     }
     pub fn set_data(&mut self, _d: &String) -> &mut Self {
@@ -126,14 +106,13 @@ impl Request {
         let mut stream = TcpStream::connect(&addrs[..])?;
 
         // 构造完整的请求头
-        self.construct_header(Method::GET);
-        let request = &self.header.clone().unwrap_or_default();
+        self.construct_header(Method::GET)
+        .set("Connection", "close");
+
+        let request = self.header.to_string() + "\r\n\r\n";
 
         // 发送请求
         stream.write_all(request.as_bytes())?;
-        if let Some(ref formdata) = self.formdata {
-            stream.write_all(formdata)?;
-        }
 
         self.fetch_response(&mut stream)?;
 
@@ -144,10 +123,12 @@ impl Request {
         let mut stream = TcpStream::connect(&addrs[..])?;
 
         // 构造完整的请求头
-        self.construct_header(Method::POST);
+        self.construct_header(Method::POST)
+        .set("Connection", "close");
         let request =
-            self.header.clone().unwrap_or_default() + &self.data.clone().unwrap_or_default();
+            self.header.to_string();
         // println!("request: {}", request);
+        
 
         // 发送请求
         stream.write_all(request.as_bytes())?;
@@ -221,10 +202,10 @@ impl Request {
 
         let request;
         match method {
-            Method::GET => request = self.header.clone().unwrap_or_default(),
+            Method::GET => request = self.header.to_string(),
             Method::POST => {
                 request =
-                    self.header.clone().unwrap_or_default() + &self.data.clone().unwrap_or_default()
+                    self.header.to_string() + &self.data.clone().unwrap_or_default()
             }
         }
 
