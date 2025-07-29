@@ -78,7 +78,13 @@ impl Request {
         self
     }
 
-    pub fn add_item_to_header(&mut self, key: &str, value: &str) -> &mut Self {
+    pub fn add_item_to_header(&mut self, item: &str) -> &mut Self {
+        let parts: Vec<&str> = item.splitn(2, ':').collect();
+        let (key, value) = if parts.len() == 2 {
+            (parts[0].trim(), parts[1].trim())
+        } else {
+            (item.trim(), "")
+        };
         self.header.set(key, value);
         self
     }

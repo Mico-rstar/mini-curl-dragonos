@@ -1,4 +1,5 @@
 use clap::Parser;
+use trust_dns_resolver::proto::op::header;
 use url::Url;
 
 mod file_io;
@@ -27,7 +28,7 @@ struct Cli {
         num_args = 1,
         help = "Set request header"
     )]
-    header: Option<String>,
+    header: Vec<String>,
 
     #[arg(
         short = 'd',
@@ -75,8 +76,10 @@ fn main() {
         let (boundary, body) = requester::build_formdata(&args.formdata).unwrap();
         request.set_formdata(&body, boundary);
     }
-    if let Some(header) = args.header {
-        request.set_header(&header);
+    if !args.header.is_empty() {
+        for item in &args.header {
+            request.add_item_to_header(item);
+        }
     }
     
     // 默认为GET
