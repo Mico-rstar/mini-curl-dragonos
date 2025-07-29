@@ -8,6 +8,7 @@ pub fn write_string_to_file(path: &str, contents: &str) -> io::Result<()> {
 }
 
 /// 字符串追加写入
+#[warn(dead_code)]
 pub fn append_string_to_file(path: &str, contents: &str) -> io::Result<()> {
     let mut file = OpenOptions::new().append(true).create(true).open(path)?;
     file.write_all(contents.as_bytes())
@@ -28,6 +29,7 @@ pub fn read_file_to_bytes(path: &str) -> io::Result<Vec<u8>> {
 }
 
 /// 字符串读取
+#[warn(dead_code)]
 pub fn read_file_to_string(path: &str) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut contents = String::new();

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::format};
+use std::{collections::HashMap};
 
 #[derive(Copy, Clone)]
 pub enum Method {
@@ -11,9 +11,9 @@ pub enum Contype {
     FORM,     // application/x-www-form-urlencoded
     FORMDATA(String), // multipart/form-data
     JSON,     // application/json
-    XML,      // text/xml
-    TEXT,     // text/plain
-    STREAM,   //application/octet-stream
+    // XML,      // text/xml
+    // TEXT,     // text/plain
+    // STREAM,   //application/octet-stream
 }
 
 impl Contype {
@@ -22,9 +22,9 @@ impl Contype {
             Contype::FORM => String::from("application/x-www-form-urlencoded"),
             Contype::FORMDATA(boundary) => format!("multipart/form-data; boundary={}", boundary),
             Contype::JSON => String::from("application/json"),
-            Contype::XML => String::from("text/xml"),
-            Contype::TEXT => String::from("text/plain"),
-            Contype::STREAM => String::from("application/octet-stream"),
+            // Contype::XML => String::from("text/xml"),
+            // Contype::TEXT => String::from("text/plain"),
+            // Contype::STREAM => String::from("application/octet-stream"),
         }
     }
 }
@@ -36,7 +36,7 @@ struct RequestLine {
 }
 
 pub struct Header {
-    pub request_line: Option<RequestLine>,
+    request_line: Option<RequestLine>,
     header: HashMap<String, String>,
 }
 
@@ -63,11 +63,7 @@ impl Header {
         self
     }
 
-    pub fn content_type(&mut self, value: &str) -> &mut Self {
-        self.header
-            .insert("Content-Type".to_string(), value.to_string());
-        self
-    }
+   
 
     pub fn set(&mut self, key: &str, value: &str) -> &mut Self {
         self.header.insert(key.to_string(), value.to_string());
@@ -123,21 +119,7 @@ impl Header {
     }
 }
 
-#[test]
-fn test_header_new_and_setters() {
-    let mut header = Header::new();
-    header
-        .with_request_line(Method::GET, "/index.html", "HTTP/1.1")
-        .content_type("application/json")
-        .set("Custom-Header", "Value");
 
-    let header_str = header.to_string();
-    assert!(header_str.contains("GET /index.html HTTP/1.1"));
-    assert!(header_str.contains("User-Agent: mini-curl-dragonos/0.1"));
-    assert!(header_str.contains("Accept: */*"));
-    assert!(header_str.contains("Content-Type: application/json"));
-    assert!(header_str.contains("Custom-Header: Value"));
-}
 
 #[test]
 fn test_header_from() {

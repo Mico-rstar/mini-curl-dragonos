@@ -2,8 +2,7 @@ use crate::response::{self, Response};
 use crate::structs::{Contype, Header, Method};
 use crate::{file_io, parser};
 use rustls_pki_types::ServerName;
-use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{TcpStream};
 use std::sync::Arc;
 use std::u8;
 
@@ -59,10 +58,9 @@ impl Request {
             .unwrap_or_default();
 
         self.header
-            .with_request_line(method, path, "HTTP/1.1")
+            .with_request_line(method, &(path.to_owned()+&query), "HTTP/1.1")
             .set("Host", host)
             .set("Content-Type", &self.ctype.to_string())
-
     }
 
     fn match_method(method_str: String) -> Result<Method, Box<dyn std::error::Error>> {
@@ -105,15 +103,17 @@ impl Request {
     pub fn http_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
         let addrs = parser::to_adders(&self.url)?;
         let method = Self::match_method(method_str)?;
+        let mut stream = TcpStream::connect(&addrs[..])?;
         match method {
-            Method::GET => self.get(&addrs),
-            Method::POST => self.post(&addrs),
+            Method::GET => self.get(&mut stream),
+            Method::POST => self.post(&mut stream),
         }
     }
 
-    pub fn get(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
-        let mut stream = TcpStream::connect(&addrs[..])?;
-
+    pub fn get<R: std::io::Write + std::io::Read>(
+        &mut self,
+        stream: &mut R,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 构造完整的请求头
         self.construct_header(Method::GET)
             .set("Connection", "close");
@@ -123,18 +123,17 @@ impl Request {
         // 发送请求
         stream.write_all(request.as_bytes())?;
 
-        self.fetch_response(&mut stream)?;
+        self.fetch_response(stream)?;
 
         Ok(())
     }
 
-    pub fn post(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
-        let mut stream = TcpStream::connect(&addrs[..])?;
+    pub fn post<T: std::io::Read + std::io::Write>(&mut self, stream: &mut T) -> Result<(), Box<dyn std::error::Error>> {
 
         // 构造完整的请求头和请求体
         self.construct_header(Method::POST)
             .set("Connection", "close");
-        
+
         let mut body: Option<&[u8]> = None;
         match self.ctype {
             Contype::FORMDATA(_) => {
@@ -162,7 +161,6 @@ impl Request {
         }
         let request = self.header.to_string() + "\r\n\r\n";
 
-
         // 发送请求头
         stream.write_all(request.as_bytes())?;
         // 发送请求体
@@ -170,7 +168,7 @@ impl Request {
             stream.write_all(body)?;
         }
 
-        self.fetch_response(&mut stream)?;
+        self.fetch_response(stream)?;
 
         Ok(())
     }
@@ -233,20 +231,10 @@ impl Request {
 
         let mut tls_stream = rustls::Stream::new(&mut client_conn, &mut tcp_stream);
 
-        let request;
         match method {
-            Method::GET => request = self.header.to_string(),
-            Method::POST => {
-                request = self.header.to_string() + &self.data.clone().unwrap_or_default()
-            }
+            Method::GET => self.get(&mut tls_stream),
+            Method::POST => self.post(&mut tls_stream),
         }
-
-        tls_stream.write_all(request.as_bytes())?;
-        tls_stream.flush()?;
-
-        self.fetch_response(&mut tls_stream)?;
-
-        Ok(())
     }
 
     fn fetch_response<R: std::io::Read>(
