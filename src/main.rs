@@ -1,5 +1,4 @@
 use clap::Parser;
-use trust_dns_resolver::proto::op::header;
 use url::Url;
 
 mod file_io;
