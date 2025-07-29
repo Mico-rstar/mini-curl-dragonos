@@ -1,12 +1,11 @@
 use crate::response::{self, Response};
+use crate::structs::{Contype, Header, Method};
 use crate::{file_io, parser};
-use rustls::quic::HeaderProtectionKey;
 use rustls_pki_types::ServerName;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::u8;
-use crate::structs::{Method, Header, Contype};
 
 /*
 TO_DO
@@ -35,7 +34,7 @@ impl Request {
         }
     }
 
-    fn construct_header(&mut self, method: Method) -> &mut Header{
+    fn construct_header(&mut self, method: Method) -> &mut Header {
         // 构造请求路径 (如果路径为空则使用 "/")
         let path = if self.url.path().is_empty() {
             "/"
@@ -59,15 +58,11 @@ impl Request {
             .map(|q| format!("?{}", q))
             .unwrap_or_default();
 
-        // data length
-        let dl = self.data.clone().unwrap_or_default().len();
-
-        
         self.header
-        .with_request_line(method, path, "HTTP/1.1")
-        .set("Host", host)
-        .set("Content-Length", &dl.to_string())
-        .set("Content-Type", &self.ctype.to_string())
+            .with_request_line(method, path, "HTTP/1.1")
+            .set("Host", host)
+            .set("Content-Type", &self.ctype.to_string())
+
     }
 
     fn match_method(method_str: String) -> Result<Method, Box<dyn std::error::Error>> {
@@ -82,13 +77,21 @@ impl Request {
         self.header = Header::from(_h);
         self
     }
-    pub fn set_data(&mut self, _d: &String) -> &mut Self {
-        self.data = Some(_d.clone());
+
+    pub fn add_item_to_header(&mut self, key: &str, value: &str) -> &mut Self {
+        self.header.set(key, value);
         self
     }
 
-    pub fn set_formdata(&mut self, d: &[u8]) -> &mut Self {
+    pub fn set_data(&mut self, _d: &String) -> &mut Self {
+        self.data = Some(_d.clone());
+        self.ctype = Contype::JSON;
+        self
+    }
+
+    pub fn set_formdata(&mut self, d: &[u8], boundary: String) -> &mut Self {
         self.formdata = Some(d.to_vec());
+        self.ctype = Contype::FORMDATA(boundary);
         self
     }
 
@@ -107,7 +110,7 @@ impl Request {
 
         // 构造完整的请求头
         self.construct_header(Method::GET)
-        .set("Connection", "close");
+            .set("Connection", "close");
 
         let request = self.header.to_string() + "\r\n\r\n";
 
@@ -122,19 +125,43 @@ impl Request {
     pub fn post(&mut self, addrs: &Vec<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = TcpStream::connect(&addrs[..])?;
 
-        // 构造完整的请求头
+        // 构造完整的请求头和请求体
         self.construct_header(Method::POST)
-        .set("Connection", "close");
-        let request =
-            self.header.to_string();
-        // println!("request: {}", request);
+            .set("Connection", "close");
         
+        let mut body: Option<&[u8]> = None;
+        match self.ctype {
+            Contype::FORMDATA(_) => {
+                self.header.set(
+                    "Content-Length",
+                    &self.formdata.clone().unwrap().len().to_string(),
+                );
 
-        // 发送请求
+                if let Some(ref formdata) = self.formdata {
+                    body = Some(formdata.as_slice());
+                }
+            }
+            Contype::JSON => {
+                self.header.set(
+                    "Content-Length",
+                    &self.data.clone().unwrap().len().to_string(),
+                );
+
+                if let Some(ref data) = self.data {
+                    body = Some(data.as_bytes());
+                }
+            }
+
+            _ => (),
+        }
+        let request = self.header.to_string() + "\r\n\r\n";
+
+
+        // 发送请求头
         stream.write_all(request.as_bytes())?;
-
-        if let Some(ref formdata) = self.formdata {
-            stream.write_all(formdata)?;
+        // 发送请求体
+        if let Some(body) = body {
+            stream.write_all(body)?;
         }
 
         self.fetch_response(&mut stream)?;
@@ -204,8 +231,7 @@ impl Request {
         match method {
             Method::GET => request = self.header.to_string(),
             Method::POST => {
-                request =
-                    self.header.to_string() + &self.data.clone().unwrap_or_default()
+                request = self.header.to_string() + &self.data.clone().unwrap_or_default()
             }
         }
 
@@ -216,8 +242,6 @@ impl Request {
 
         Ok(())
     }
-
-    
 
     fn fetch_response<R: std::io::Read>(
         &mut self,
@@ -299,42 +323,40 @@ impl rustls::client::danger::ServerCertVerifier for NoVerification {
     }
 }
 
-
 pub fn build_formdata(
-        formdata: &[String],
-    ) -> Result<(String, Vec<u8>), Box<dyn std::error::Error>> {
-        let boundary = format!("----mini-curl-{}", rand::random::<u64>());
-        let mut body = Vec::new();
+    formdata: &[String],
+) -> Result<(String, Vec<u8>), Box<dyn std::error::Error>> {
+    let boundary = format!("----mini-curl-{}", rand::random::<u64>());
+    let mut body = Vec::new();
 
-        for item in formdata {
-            if let Some((key, value)) = item.split_once('=') {
-                if value.starts_with('@') {
-                    // 文件上传
-                    let filepath = &value[1..];
-                    let filename = std::path::Path::new(filepath)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("file");
-                    let file_content = file_io::read_file_to_bytes(filepath)?;
-                    body.extend_from_slice(format!(
+    for item in formdata {
+        if let Some((key, value)) = item.split_once('=') {
+            if value.starts_with('@') {
+                // 文件上传
+                let filepath = &value[1..];
+                let filename = std::path::Path::new(filepath)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file");
+                let file_content = file_io::read_file_to_bytes(filepath)?;
+                body.extend_from_slice(format!(
                     "--{}\r\nContent-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\nContent-Type: application/octet-stream\r\n\r\n",
                     boundary, key, filename
                 ).as_bytes());
-                    body.extend_from_slice(&file_content);
-                    body.extend_from_slice(b"\r\n");
-                } else {
-                    // 普通文本字段
-                    body.extend_from_slice(
-                        format!(
-                            "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n",
-                            boundary, key, value
-                        )
-                        .as_bytes(),
-                    );
-                }
+                body.extend_from_slice(&file_content);
+                body.extend_from_slice(b"\r\n");
+            } else {
+                // 普通文本字段
+                body.extend_from_slice(
+                    format!(
+                        "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n",
+                        boundary, key, value
+                    )
+                    .as_bytes(),
+                );
             }
         }
-        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
-        let content_type = format!("multipart/form-data; boundary={}", boundary);
-        Ok((content_type, body))
     }
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+    Ok((boundary, body))
+}

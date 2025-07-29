@@ -72,13 +72,8 @@ fn main() {
         request.set_data(&data);
     }
     if !args.formdata.is_empty() {
-        let (content_type, body) = requester::build_formdata(&args.formdata).unwrap();
-        request.set_header(&format!(
-            "POST /path HTTP/1.1\r\nHost: ...\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
-            content_type,
-            body.len()
-        ));
-        request.set_formdata(&body);
+        let (boundary, body) = requester::build_formdata(&args.formdata).unwrap();
+        request.set_formdata(&body, boundary);
     }
     if let Some(header) = args.header {
         request.set_header(&header);
