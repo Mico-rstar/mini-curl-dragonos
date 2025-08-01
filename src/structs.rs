@@ -1,9 +1,28 @@
-use std::{collections::HashMap};
+use std::{collections::HashMap, f32::MIN_POSITIVE};
 
 #[derive(Copy, Clone)]
 pub enum Method {
     GET,
     POST,
+    UNKNOWN,
+}
+
+impl Method {
+    pub fn to_string(&self) -> String{
+        match *self {
+            Method::GET => String::from("GET"),
+            Method::POST => String::from("POST"),
+            Method::UNKNOWN => String::from("UNKNOWN"),
+        }
+    }
+
+    pub fn from(method_str: &str) -> Self {
+        match method_str {
+            "GET" => Self::GET,
+            "POST" => Self::POST,
+            _ => Self::UNKNOWN,
+        }
+    }
 }
 
 // content type
@@ -73,10 +92,7 @@ impl Header {
     pub fn to_string(&self) -> String {
         let mut lines = Vec::new();
         if let Some(ref req) = self.request_line {
-            let method_str = match req.method {
-                Method::GET => "GET",
-                Method::POST => "POST",
-            };
+            let method_str = req.method.to_string();
             lines.push(format!("{} {} {}", method_str, req.path, req.version));
         }
         lines.extend(self.header.iter().map(|(k, v)| format!("{}: {}", k, v)));

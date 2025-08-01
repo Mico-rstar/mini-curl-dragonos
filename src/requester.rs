@@ -2,8 +2,9 @@ use crate::response::{self, Response};
 use crate::structs::{Contype, Header, Method};
 use crate::{file_io, parser};
 use rustls_pki_types::ServerName;
-use std::net::{TcpStream};
-use std::sync::Arc;
+use std::net::TcpStream;
+use std::ops::DerefMut;
+use std::sync::{Arc, Condvar};
 use std::u8;
 
 /*
@@ -58,17 +59,9 @@ impl Request {
             .unwrap_or_default();
 
         self.header
-            .with_request_line(method, &(path.to_owned()+&query), "HTTP/1.1")
+            .with_request_line(method, &(path.to_owned() + &query), "HTTP/1.1")
             .set("Host", host)
             .set("Content-Type", &self.ctype.to_string())
-    }
-
-    fn match_method(method_str: String) -> Result<Method, Box<dyn std::error::Error>> {
-        match method_str.as_str() {
-            "GET" => Ok(Method::GET),
-            "POST" => Ok(Method::POST),
-            _ => Err("unsupported method".into()),
-        }
     }
 
     pub fn set_header(&mut self, _h: &String) -> &mut Self {
@@ -102,11 +95,12 @@ impl Request {
     // http get/post
     pub fn http_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
         let addrs = parser::to_adders(&self.url)?;
-        let method = Self::match_method(method_str)?;
+        let method = Method::from(method_str.as_str());
         let mut stream = TcpStream::connect(&addrs[..])?;
         match method {
             Method::GET => self.get(&mut stream),
             Method::POST => self.post(&mut stream),
+            Method::UNKNOWN => Err("unsupported method".into()),
         }
     }
 
@@ -128,8 +122,10 @@ impl Request {
         Ok(())
     }
 
-    pub fn post<T: std::io::Read + std::io::Write>(&mut self, stream: &mut T) -> Result<(), Box<dyn std::error::Error>> {
-
+    pub fn post<T: std::io::Read + std::io::Write>(
+        &mut self,
+        stream: &mut T,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 构造完整的请求头和请求体
         self.construct_header(Method::POST)
             .set("Connection", "close");
@@ -175,67 +171,47 @@ impl Request {
 
     // https get/post
     pub fn https_do(&mut self, method_str: String) -> Result<(), Box<dyn std::error::Error>> {
-        let mut last_error = None;
-        let method = Self::match_method(method_str)?;
-        let addrs = parser::to_adders(&self.url)?;
-        for addr in addrs {
-            let ip = addr.ip().to_string();
-            let port = addr.port();
+        let host = self.url.host_str().ok_or("URL must have a host")?.to_string();
+        let server_name: ServerName = host.try_into()?;
 
-            match self.try_https(ip, port, method) {
-                Ok(()) => return Ok(()),        // 成功则立即返回
-                Err(e) => last_error = Some(e), // 失败则记录错误
-            }
+        let addrs = {
+            let url = &self.url;
+            parser::to_adders(url)?
+        };
+
+        // 加载系统根证书
+        let mut root_cert_store = rustls::RootCertStore::empty();
+        for cert in rustls_native_certs::load_native_certs()? {
+            root_cert_store.add(cert)?;
         }
 
-        // 所有地址都失败，返回最后一个错误
-        last_error.map_or_else(
-            || Ok(()),  // 如果 last_error 为空，返回 Ok(())
-            |e| Err(e), // 否则返回最后一个错误
-        )
-    }
-
-    fn try_https(
-        &mut self,
-        host: String,
-        port: u16,
-        method: Method,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // 构造完整的请求头
-        self.construct_header(method.clone());
-
-        // 配置 `rustls` 客户端以跳过验证
-        // 创建一个危险的客户端配置构建器，允许不安全的证书验证
+        // 构建 TLS 配置
         let config = rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(NoVerification)) // 使用自定义的空验证器
+            .with_root_certificates(root_cert_store)
             .with_no_client_auth();
 
-        // let mut root_cert_store = rustls::RootCertStore::empty();
+        // 建立 TCP 连接
+        let mut stream = TcpStream::connect(&addrs[..])?;
 
-        // // 加载操作系统原生的根证书
-        // for cert in rustls_native_certs::load_native_certs()? {
-        //     root_cert_store.add(cert)?;
-        // }
+        // 建立 TLS 连接
+        //let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
+        let mut conn = rustls::client::ClientConnection::new(Arc::new(config), server_name)?;
+        let mut tls = rustls::Stream::new(&mut conn, &mut stream);
 
-        // // 创建 TLS 客户端配置
-        // let config = rustls::ClientConfig::builder()
-        //     .with_root_certificates(root_cert_store) // 设置信任的根证书
-        //     .with_no_client_auth(); // 指定客户端不需要提供证书进行验证
-
-        let server_name: ServerName = host.to_string().try_into().map_err(|_| "无效的DNS名称")?;
-        let mut client_conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
-
-        let mut tcp_stream = TcpStream::connect((host, port))?;
-        // tcp_stream.set_read_timeout(Some(Duration::new(3, 0)));
-
-        let mut tls_stream = rustls::Stream::new(&mut client_conn, &mut tcp_stream);
-
+        let method = Method::from(method_str.as_str());
         match method {
-            Method::GET => self.get(&mut tls_stream),
-            Method::POST => self.post(&mut tls_stream),
+            Method::GET => self.get(&mut tls),
+            Method::POST => self.post(&mut tls),
+            Method::UNKNOWN => Err("unsupported method".into()),
         }
     }
+
+    // 配置 `rustls` 客户端以跳过验证
+    // 创建一个危险的客户端配置构建器，允许不安全的证书验证
+    // let config = rustls::ClientConfig::builder()
+    //     .dangerous()
+    //     .with_custom_certificate_verifier(Arc::new(NoVerification)) // 使用自定义的空验证器
+    //     .with_no_client_auth();
 
     fn fetch_response<R: std::io::Read>(
         &mut self,
